@@ -1,22 +1,45 @@
 import pytest
-
+from unittest.mock import MagicMock
 from agent.main import create_agent
+
+# --- Fixture to auto-mock OpenAI completions ---
+@pytest.fixture(autouse=True)
+def mock_openai_chat(monkeypatch):
+    class DummyChoice:
+        def __init__(self, content):
+            self.message = MagicMock(content=content)
+    class DummyResult:
+        def __init__(self, content):
+            self.choices = [DummyChoice(content)]
+    def fake_create(model, messages, temperature):
+        role_to_prefix = {
+            'You are a systems analyst': 'Functional requirements for: ',
+            'You are a technical analyst': 'Technical requirements for: ',
+            'You are a software architect': 'Architecture design for: ',
+            'You are a senior engineer': 'Detailed design for: ',
+            'You are a project manager': 'Task breakdown for: ',
+        }
+        sys_msg = messages[0]['content']
+        user_msg = messages[1]['content']
+        prefix = next((v for k, v in role_to_prefix.items() if sys_msg.startswith(k)), 'Result: ')
+        return DummyResult(prefix + user_msg)
+    monkeypatch.setattr(
+        'openai.OpenAI',
+        lambda *a, **k: type('MockClient', (), {"chat": type('Obj', (), {"completions": type('Obj', (), {"create": staticmethod(fake_create)})})})(),
+    )
 
 @pytest.fixture
 def agent():
     return create_agent()
 
 def test_agent_has_run_method(agent):
-    # Agent should have a callable run method
     assert hasattr(agent, 'run')
     assert callable(agent.run)
 
 def test_agent_run_returns_dict(agent):
-    # Running with a prompt returns a dict of tool results
     prompt = "TestPrompt"
     output = agent.run(prompt)
     assert isinstance(output, dict)
-    # Expect one entry per generator tool
     expected_tools = {
         'generate_functional_requirements',
         'generate_technical_requirements',
@@ -25,7 +48,6 @@ def test_agent_run_returns_dict(agent):
         'generate_task_breakdown',
     }
     assert set(output.keys()) == expected_tools
-    # Each value should be a string incorporating the prompt
     for key, value in output.items():
         assert isinstance(value, str)
         assert prompt in value
@@ -41,6 +63,5 @@ def test_agent_run_returns_dict(agent):
     ]
 )
 def test_individual_tool_output(agent, tool_name, prompt, expected_substr):
-    # Test that each tool returns the correctly formatted string
     output = agent.run(prompt)
     assert output[tool_name] == expected_substr

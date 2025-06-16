@@ -4,18 +4,30 @@ This module defines generator tools for the IT Spec Agent.
 Each function is registered as an OpenAI tool via @tool decorator using a phase-specific system prompt and user input.
 """
 
-try:
-    import openai
-    from openai import tool
-    _has_openai = True
-except ImportError:
-    _has_openai = False
-    def tool(f=None, *, name=None, description=None):
+
+# Delay all openai imports until function call time, for reliable monkeypatching and testability
+def _try_import_openai():
+    try:
+        import openai
+        return openai
+    except ImportError:
+        return None
+
+# Safe decorator fallback, supports @tool or plain if openai.tool unavailable
+def _tool_decorator():
+    openai = _try_import_openai()
+    if openai and hasattr(openai, 'tool'):
+        return openai.tool
+    def fallback(f=None, *, name=None, description=None):
         def decorator(func):
             return func
         if f:
             return decorator(f)
         return decorator
+    return fallback
+
+tool = _tool_decorator()
+
 
 from agent.prompts.functional import PROMPT as FUNCTIONAL_PROMPT
 from agent.prompts.technical import PROMPT as TECHNICAL_PROMPT
@@ -23,12 +35,10 @@ from agent.prompts.architecture import PROMPT as ARCHITECTURE_PROMPT
 from agent.prompts.design import PROMPT as DESIGN_PROMPT
 from agent.prompts.tasks import PROMPT as TASKS_PROMPT
 
-def _raise_no_openai():
-    raise ImportError("openai Python package is required to use these functions. Please install openai.")
-
 def _chat_completion(system_prompt, user_prompt):
-    if not _has_openai:
-        _raise_no_openai()
+    openai = _try_import_openai()
+    if openai is None:
+        raise ImportError("openai Python package is required to use these functions. Please install openai.")
     client = openai.OpenAI()
     result = client.chat.completions.create(
         model="gpt-4o",
