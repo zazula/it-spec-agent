@@ -35,20 +35,36 @@ from agent.prompts.architecture import PROMPT as ARCHITECTURE_PROMPT
 from agent.prompts.design import PROMPT as DESIGN_PROMPT
 from agent.prompts.tasks import PROMPT as TASKS_PROMPT
 
+import time
+import logging
+logger = logging.getLogger("it-spec-agent.generators")
+
 def _chat_completion(system_prompt, user_prompt):
     openai = _try_import_openai()
     if openai is None:
         raise ImportError("openai Python package is required to use these functions. Please install openai.")
-    client = openai.OpenAI()
-    result = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        temperature=0.2
-    )
-    return result.choices[0].message.content
+    # Debug: log call and system prompt size
+    logger.warning("Calling OpenAI API with prompt (sys: %d chars, user: %d chars)" % (len(system_prompt), len(user_prompt)))
+    start = time.monotonic()
+    try:
+        # Explicitly set a short timeout and minimum retries
+        client = openai.OpenAI(timeout=15, max_retries=1)
+        logger.warning(f"OpenAI client instantiated. Sending completion request.")
+        result = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.2
+        )
+        logger.warning("OpenAI API response received in %.2fs" % (time.monotonic() - start))
+        content = result.choices[0].message.content
+        logger.warning(f"OpenAI content returned: {str(content)[:140]}")
+        return content
+    except Exception as e:
+        logger.error("OpenAI API call failed after %.2fs: %s" % (time.monotonic() - start, repr(e)))
+        raise
 
 @tool
 def generate_functional_requirements(prompt: str) -> str:
