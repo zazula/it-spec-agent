@@ -1,1 +1,3 @@
-def test_sample(): assert True
+def test_sample():
+    # basic smoke test
+    assert True
